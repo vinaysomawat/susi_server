@@ -20,6 +20,7 @@
 
 package ai.susi.server;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -50,16 +51,38 @@ public class Query {
     
     public Query(final HttpServletRequest request) {
         this.qm = new LinkedHashMap<>();
+        this.request = request;
+
+        // Read post parameters
         for (Map.Entry<String, String[]> entry: request.getParameterMap().entrySet()) {
             this.qm.put(entry.getKey(), entry.getValue()[0].getBytes(StandardCharsets.UTF_8));
         }
-        this.request = request;
-        
+
+        // Read content body
+        // for a negative (should not fail) test, use the following line:
+        // curl -v -X POST -b "__cfduid=d7339feeeeb7735ffa967330331f37d2d1550960440" -H "Accept-Language: en;q=1.0" -H "User-Agent: Susi/1.0 (com.imjog.susi; build:1; iOS 12.1.0) Alamofire/4.7.2" -H "Content-Type: application/x-www-form-urlencoded; charset=utf-8" -H "Accept-Encoding: gzip;q=1.0, compress;q=0.5" -d "login=xxx%40gmail.com&password=xxx%40123&type=access-token" "http://localhost:4000/aaa/login.json"
+        if ("POST".equalsIgnoreCase(request.getMethod())) {
+           try {
+               BufferedReader reader = request.getReader();
+               char[] a = new char[1024];
+               StringBuilder b = new StringBuilder(1024);
+               int i;
+               while ((i = reader.read(a, 0, a.length)) != -1) b.append(a, 0, i);
+               reader.close();
+               this.qm.put("BODY", b.toString().getBytes(StandardCharsets.UTF_8));
+           } catch (IllegalStateException e) {
+               // this is normal in case that there is no body attached to the request.
+               // so we ignore this silently.
+           } catch (Throwable e) {
+               e.printStackTrace();
+           }
+        }
+
         // discover remote host
         String clientHost = request.getRemoteHost();
         String XRealIP = request.getHeader("X-Real-IP");
         if (XRealIP != null && XRealIP.length() > 0) clientHost = XRealIP; // get IP through nginx config "proxy_set_header X-Real-IP $remote_addr;"
-        
+
         // start tracking: get calling thread and start tracking for that
         this.track = DAO.access.startTracking(request.getServletPath(), clientHost);
         this.track.setTimeSinceLastAccess(this.track.getDate().getTime() - RemoteAccess.latestVisit(request.getServletPath(), clientHost));

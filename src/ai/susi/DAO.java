@@ -50,7 +50,6 @@ import javax.annotation.Nonnull;
 import ai.susi.json.JsonFile;
 import ai.susi.json.JsonTray;
 import ai.susi.mind.SusiAction.SusiActionException;
-import ai.susi.mind.SusiLanguage;
 import ai.susi.mind.SusiMemory;
 import ai.susi.mind.SusiMind;
 import ai.susi.mind.SusiSkill;
@@ -143,7 +142,7 @@ public class DAO {
         logAppender = new LogAppender(layout, 100000);
         logger.addAppender(logAppender);
         logger.addAppender(new ConsoleAppender(layout));
-        logger.setLevel(Level.WARN);
+        logger.setLevel(Level.INFO);
     }
 
     // create the mind layers (all have a common memory)
@@ -204,7 +203,7 @@ public class DAO {
 
         // wake up susi
         SusiMind.Layer system_skills_include = new SusiMind.Layer("General", new File(new File(conf_dir, "os_skills"), "include"), true);
-        SusiMind.Layer system_skills_linuguistic = new SusiMind.Layer("General", new File(new File(conf_dir, "os_skills"), "linuguistic"), true);
+        SusiMind.Layer system_skills_linuguistic = new SusiMind.Layer("General", new File(new File(conf_dir, "os_skills"), "linguistic"), true);
         SusiMind.Layer system_skills_operation = new SusiMind.Layer("General", new File(new File(conf_dir, "os_skills"), "operation"), true);
         SusiMind.Layer system_skills_system = new SusiMind.Layer("General", new File(new File(conf_dir, "os_skills"), "system"), true);
         SusiMind.Layer system_skills_local = new SusiMind.Layer("Local", new File(new File(conf_dir, "os_skills"), "local"), true);
@@ -426,7 +425,19 @@ public class DAO {
         dictionaries = new File(external_data, "dictionaries");
         dictionaries.mkdirs();
 
+        // initializing susi minf concurrently
+        Thread susi_mind_init = new Thread() {
+            public void run() {
+                try {
+                    susi.observe();
+                } catch (IOException e) {
+                    DAO.severe(e);
+                }
+            }
+        };
+        susi_mind_init.start();
 
+        // initializing the log concurrently
         Path log_dump_dir = dataPath.resolve("log");
         log_dump_dir.toFile().mkdirs();
         OS.protectPath(log_dump_dir); // no other permissions to this path
@@ -1165,6 +1176,8 @@ public class DAO {
 
         String fn = skill_name + ".txt";
         String[] list = languagepath.list();
+        
+        DAO.log("getSkillFileInLanguage: languagepath:"+languagepath+ ", skill_name:" + skill_name + ", null_if_not_found:" + null_if_not_found);
 
         // first try: the skill name may be same or similar to the skill file name
         if(list !=null && list.length!=0){
@@ -1185,7 +1198,7 @@ public class DAO {
                     SusiSkill.ID skillid = new SusiSkill.ID(f);
                     SusiSkill skill = new SusiSkill(new BufferedReader(new FileReader(f)), skillid, false);
                     String sn = skill.getSkillName();
-                    if (sn.equals(skill_name) || sn.toLowerCase().equals(skill_name) || sn.toLowerCase().replace(' ', '_').equals(skill_name)) {
+                    if (sn != null && (sn.equals(skill_name) || sn.toLowerCase().equals(skill_name) || sn.toLowerCase().replace(' ', '_').equals(skill_name))) {
                         return new File(languagepath, n);
                     }
                 } catch (JSONException | FileNotFoundException | SusiActionException e) {

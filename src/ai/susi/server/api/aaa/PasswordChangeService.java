@@ -23,7 +23,11 @@ import ai.susi.tools.TimeoutMatcher;
 import org.json.JSONObject;
 
 import javax.servlet.http.HttpServletResponse;
+
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.regex.Pattern;
+import org.eclipse.jetty.http.HttpStatus;
 
 /**
  * Created by dravit on 6/7/17.
@@ -78,7 +82,7 @@ public class PasswordChangeService extends AbstractAPIHandler implements APIHand
         } catch (Throwable e) {
             DAO.log("Invalid password try for user: " + identity.getName() + " from host: " + post.getClientHost() + " : password or salt missing in database");
             result.put("message", "Invalid credentials.");
-            throw new APIException(422, "Invalid credentials");
+            throw new APIException(HttpStatus.UNPROCESSABLE_ENTITY_422, "Invalid credentials");
         }
         if (!passwordHash.equals(getHash(password, salt))) {
 
@@ -88,7 +92,7 @@ public class PasswordChangeService extends AbstractAPIHandler implements APIHand
 
             DAO.log("Invalid change password try for user: " + identity.getName() + " via passwd from host: " + post.getClientHost());
             result.put("message", "Invalid credentials.");
-            throw new APIException(422, "Invalid credentials");
+            throw new APIException(HttpStatus.UNPROCESSABLE_ENTITY_422, "Invalid credentials");
         } else {
             String passwordPattern = DAO.getConfig("users.password.regex", "^(?=.*\\d).{6,64}$");
 
@@ -97,7 +101,7 @@ public class PasswordChangeService extends AbstractAPIHandler implements APIHand
             if ((authentication.getIdentity().getName()).equals(newpassword) || !new TimeoutMatcher(pattern.matcher(newpassword)).matches()) {
                 // password can't be equal to email and regex should be matched
                 result.put("message", "Invalid password.");
-                throw new APIException(422, "invalid password");
+                throw new APIException(HttpStatus.UNPROCESSABLE_ENTITY_422, "invalid password");
             }
 
             if (DAO.hasAuthentication(emailcred)) {
@@ -107,24 +111,41 @@ public class PasswordChangeService extends AbstractAPIHandler implements APIHand
                     return new ServiceResponse(result);
                 }
                 Authentication emailauth = DAO.getAuthentication(emailcred);
-                String newsalt = createRandomString(20);
                 emailauth.remove("passwordHash");
                 emailauth.put("passwordHash", getHash(newpassword, salt));
                 DAO.log("password change for user: " + identity.getName() + " via newpassword from host: " + post.getClientHost());
 
                 String subject = "Password Change";
+                InetAddress address = null;
+				try {
+					address = InetAddress.getLocalHost();
+				} catch (UnknownHostException e1) {
+					
+				}
+                String findIP = address.getHostAddress();
+                String IP = "127.0.1.1";
                 try {
                     EmailHandler.sendEmail(authentication.getIdentity().getName(), subject, "Your password has been changed successfully!");
                     result.put("message", "Your password has been changed!");
                     result.put("accepted", true);
                 } catch (Exception e) {
-                    throw new APIException(500, "Failed to change password");
+                    if(findIP.equals(IP)) {
+                    	String prepasswordHash = passwordHash;
+                    	String postpasswordHash = authentication.getString("passwordHash");
+                    	if(!prepasswordHash.equals(postpasswordHash)) {
+                    	result.put("message","Your password has sucessfully been changed and stored in the local database!");
+                    	result.put("accepted",true);
+                    	}
+                    	else {
+                    		throw new APIException(HttpStatus.INTERNAL_SERVER_ERROR_500,"Failed to update password in the local database!");
+                    	}
                 }
-            }
+                    else{
+                    	throw new APIException(HttpStatus.INTERNAL_SERVER_ERROR_500, "Failed to change password");}
+                    }
+                }
         }
 
         return new ServiceResponse(result);
     }
-
 }
-
